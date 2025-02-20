@@ -1,3 +1,5 @@
+from datetime import datetime
+
 import pandas as pd
 import numpy as np
 import torch
@@ -129,6 +131,39 @@ class TransformerModel(nn.Module):
         pe[:, 1::2] = torch.cos(positions * div_term)
         return pe.unsqueeze(0)  # Shape: [1, seq_len, d_model]
 
+def save_loss_to_csv(train_losses: List[float], val_losses: List[float], output_dir: str = "/home/ioana/Desktop/Model_Licenta/output2") -> None:
+    """
+    Save training and validation losses per epoch into a CSV file named by the current date and time.
+
+    Args:
+        train_losses (List[float]): List of training losses per epoch.
+        val_losses (List[float]): List of validation losses per epoch.
+        output_dir (str): Directory to save the CSV file.
+    """
+    # Create output directory if it doesn't exist
+    os.makedirs(output_dir, exist_ok=True)
+
+    # Current datetime for file naming
+    run_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    filename = f"loss_log_{run_time}.csv"
+    file_path = os.path.join(output_dir, filename)
+    print(f" train loss: {train_losses[0]:.4f} | val loss: {val_losses[0]:.4f}")
+    print(f"length of train loss: {len(train_losses)}")
+    print(f"length of validation loss: {len(val_losses)}")
+
+    min_length = min(len(train_losses), len(val_losses))
+    train_losses = train_losses[:min_length]
+    val_losses = val_losses[:min_length]
+    print(f" Using minimum length: {min_length}")
+
+    # Create DataFrame and save to CSV
+    loss_df = pd.DataFrame({
+        "epoch": list(range(1, len(train_losses) + 1)),
+        "train_loss": train_losses,
+        "val_loss": val_losses
+    })
+    loss_df.to_csv(file_path, index=False)
+    print(f" Training and validation losses saved to: {file_path}")
 
 #  Function: Save Predictions with Denormalization
 def save_predictions2_to_csv(user_ids: List[int], times: List[str], y_true: List[float],
@@ -198,7 +233,10 @@ criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
 
 # Training Loop
+train_losses: List[float] = []
+val_losses: List[float] = []
 epochs = 3
+
 for epoch in range(epochs):
     model.train()
     total_loss = 0
@@ -215,6 +253,7 @@ for epoch in range(epochs):
         total_loss += loss.item()
 
     avg_loss = total_loss / len(new_train_loader)
+    train_losses.append(avg_loss)
     print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
 
 torch.save(model.state_dict(), "best_model_transfer_learning.pth")
@@ -222,6 +261,7 @@ print("Modelul actualizat a fost salvat în 'best_model_transfer_learning.pth'")
 
 # Generate & Save Predictions (Denormalized)
 model.eval()
+total_val_loss = 0
 y_true_all, y_pred_all, times_all, user_ids_all = [], [], [], []
 with torch.no_grad():
     for x_values, x_time, x_features, user_id, y in new_train_loader:
@@ -234,5 +274,12 @@ with torch.no_grad():
         times_batch = pd.to_datetime(x_time[:, -1].cpu().numpy(), unit='s', origin='unix', utc=True).astype(str).tolist()
         times_all.extend(times_batch)
         user_ids_all.extend(user_id.cpu().numpy().flatten().tolist())
+        val_loss = criterion(predictions, y)
+        total_val_loss += val_loss.item()
 
+    avg_val_loss = total_val_loss / len(new_train_loader)
+    val_losses.append(avg_val_loss)
+    print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {avg_val_loss:.4f}")
+
+save_loss_to_csv(train_losses, val_losses)
 save_predictions2_to_csv(user_ids_all, times_all, y_true_all, y_pred_all, min_value, max_value, filename="predictions_transfer_learning.csv")
