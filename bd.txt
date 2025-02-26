@@ -1,0 +1,24 @@
+lic- model initial, trimiteaam x prin trab=nsformer si ca input si ca target ( asa era in ambele modele)
+
+lic_feb1- secv target e shoftata a.i. sa ia doar ce e inainte- modificat n ambele
+
+
+
+
+create database lic_feb2;
+
+-- Create 'loss' table
+CREATE TABLE loss (
+    epoch INT NOT NULL PRIMARY KEY,
+    train_loss FLOAT,
+    val_loss FLOAT
+);
+
+-- Create 'prediction_hr' table
+CREATE TABLE prediction_hr (
+    user_id INT,
+    time DATETIME,
+    real_value FLOAT,
+    predicted_value FLOAT
+);
+

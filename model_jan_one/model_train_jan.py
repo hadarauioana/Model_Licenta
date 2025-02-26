@@ -35,8 +35,6 @@ def save_predictions_to_csv(y_true, y_pred, times, user_ids, filename='final_pre
     predictions_df.to_csv(file_path, index=False)
     print(f"Predictions saved to: {file_path}")
 
-
-
 def train_model_with_early_stopping(
     model: nn.Module,
     train_loader: DataLoader,

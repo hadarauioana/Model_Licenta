@@ -103,7 +103,7 @@ class TransformerModel(nn.Module):
         self.value_embedding = nn.Linear(input_dim, value_dim)  # [batch, seq_len, value_dim]
         self.time_embedding = nn.Linear(time_dim, time_dim_adjusted)  # [batch, seq_len, time_dim_adjusted]
         self.user_embedding = nn.Embedding(num_users, embedding_dim)  # [batch, embedding_dim]
-        self.user_projection = nn.Linear(embedding_dim, user_dim)  # [batch, user_dim]
+        self.user_projection = nn.Linear(embedding_dim, user_dim)  # [batch, user_dim] projects the raw user embedding into the space with dimension user_dim so that all three parts (value, time, user) add up to d_model.
 
         # Define Transformer
         self.transformer = nn.Transformer(
@@ -145,31 +145,35 @@ class TransformerModel(nn.Module):
         value_embed = self.value_embedding(x_values.unsqueeze(-1))  # [batch, seq_len, value_dim]
         time_embed = self.time_embedding(x_features)  # [batch, seq_len, time_dim_adjusted]
         user_embed = self.user_projection(self.user_embedding(user_id)).unsqueeze(1).repeat(1, seq_len, 1)  # [batch, seq_len, user_dim]
+        # --adds a sequence dimension to make it [batch, 1, user_dim]                --replicates the user embedding along the sequence dimension so that it can be concatenated with other embeddings, resulting in [batch, seq_len, user_dim].
 
         # Concatenate embeddings
         x = torch.cat((value_embed, time_embed, user_embed), dim=-1)  # [batch, seq_len, d_model]
+
+        #Combines the three embeddings along the feature dimension. The resulting tensor has shape [batch, seq_len, d_model] because the individual dimensions add up to d_model.
 
         # Add positional encoding
         pos_encoding = self.generate_positional_encoding(seq_len).to(x.device)  # [1, seq_len, d_model]
         x += pos_encoding[:, :seq_len, :]
 
-        # Pass through Transformer
-        output = self.transformer(x, x)  # [batch, seq_len, d_model]
+        # Shift the input by one step for the decoder (typical autoregressive target)
+        # tgt starts with a zero tensor or last known value and shifts the rest of the input
+        tgt = torch.zeros_like(x[:, :1, :]).to(x.device)  # Initial token (e.g., start token)
+        tgt = torch.cat([tgt, x[:, :-1, :]], dim=1)  # Shifted target sequence
 
-        # Predict next sequence
+        # Create target mask (causal mask for autoregressive prediction)
+        tgt_mask = self.transformer.generate_square_subsequent_mask(seq_len).to(x.device)
+        # ------------------------------------------------------------------- #
+
+        # Pass through Transformer with proper target input
+        output = self.transformer(
+            src=x,
+            tgt=tgt,
+            tgt_mask=tgt_mask
+        )  # [batch, seq_len, d_model]
+
+        # Predict next sequence (use last output step for forecasting)
         return self.fc_out(output[:, -1, :])  # [batch, pred_len]
-
-
-
-
-
-
-
-
-
-
-
-
 
 
 
