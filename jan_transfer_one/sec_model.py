@@ -1,5 +1,5 @@
 from datetime import datetime
-
+from sklearn.model_selection import GroupKFold
 import pandas as pd
 import numpy as np
 import torch
@@ -120,8 +120,22 @@ class TransformerModel(nn.Module):
         pos_encoding = self.generate_positional_encoding(seq_len).to(x.device)
         x += pos_encoding[:, :seq_len, :]
 
-        output = self.transformer(x, x)  # Shape: [batch_size, seq_len, d_model]
-        return self.fc_out(output[:, -1, :])  # Final Output: [batch_size, pred_len]
+        tgt = torch.zeros_like(x[:, :1, :]).to(x.device)  # Initial token (e.g., start token)
+        tgt = torch.cat([tgt, x[:, :-1, :]], dim=1)  # Shifted target sequence
+
+        # Create target mask (causal mask for autoregressive prediction)
+        tgt_mask = self.transformer.generate_square_subsequent_mask(seq_len).to(x.device)
+        # ------------------------------------------------------------------- #
+
+        # Pass through Transformer with proper target input
+        output = self.transformer(
+            src=x,
+            tgt=tgt,
+            tgt_mask=tgt_mask
+        )  # [batch, seq_len, d_model]
+
+        # Predict next sequence (use last output step for forecasting)
+        return self.fc_out(output[:, -1, :])  # [batch, pred_len]
 
     def generate_positional_encoding(self, seq_len: int) -> torch.Tensor:
         positions = torch.arange(0, seq_len).unsqueeze(1)
@@ -197,6 +211,9 @@ def save_predictions2_to_csv(user_ids: List[int], times: List[str], y_true: List
     print(f"Predictions saved to: {file_path_pred}")
 
 
+device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print(f"Device in use: {device}")
+
 # Main Execution
 file_path = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_pmdata/filter_merged_processed_data_pmdata.csv"
 new_data = pd.read_csv(file_path)
@@ -207,12 +224,29 @@ min_value, max_value = new_data["Value"].min(), new_data["Value"].max()
 with open('/home/ioana/Desktop/Model_Licenta/data/scaler2_min_max.pkl', 'wb') as f:
     pickle.dump((min_value, max_value), f)
 
-device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Device in use: {device}")
-
 input_len, new_pred_len, overlap, batch_size = 30, 10, 20, 64
-new_dataset = HeartRateDataset(new_data, input_len, new_pred_len, overlap, user_id_map)
-new_train_loader = DataLoader(new_dataset, batch_size=batch_size, shuffle=True)
+dataset = HeartRateDataset(new_data, input_len, new_pred_len, overlap, user_id_map)
+
+scaler: MinMaxScaler = MinMaxScaler()
+scaler.fit(new_data["Value"].values.reshape(-1, 1))
+
+
+
+# Split dataset using GroupKFold
+group_kfold = GroupKFold(n_splits=5)
+groups = [user_id for (_, _, _, user_id, _) in dataset.data]
+train_idx, val_test_idx = next(group_kfold.split(dataset.data, groups=groups))
+val_test_groups = [groups[i] for i in val_test_idx]
+train_data = torch.utils.data.Subset(dataset, train_idx)
+
+val_idx, test_idx = next(GroupKFold(n_splits=2).split(val_test_idx, groups=val_test_groups))
+val_data = torch.utils.data.Subset(dataset, val_idx)
+test_data = torch.utils.data.Subset(dataset, test_idx)
+
+# Data loaders
+train_loader: DataLoader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+val_loader: DataLoader = DataLoader(val_data, batch_size=batch_size)
+test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
 
 # Load Model & Transfer Learning
 checkpoint = torch.load("/home/ioana/Desktop/Model_Licenta/model_jan_one/best_model.pth")
@@ -220,14 +254,14 @@ model = TransformerModel(input_dim=1, time_dim=2, d_model=64, nhead=4,
                          num_layers=3, num_users=len(user_id_map), embedding_dim=16,
                          pred_len=new_pred_len, dropout=0.1)
 model.to(device)
-model.load_state_dict(checkpoint, strict=False)
-
-# Freeze layers except final output
-for param in model.parameters():
-    param.requires_grad = False
-model.fc_out = nn.Linear(64, new_pred_len).to(device)
-for param in model.fc_out.parameters():
-    param.requires_grad = True
+# model.load_state_dict(checkpoint, strict=False)
+#
+# # Freeze layers except final output
+# for param in model.parameters():
+#     param.requires_grad = False
+# model.fc_out = nn.Linear(64, new_pred_len).to(device)
+# for param in model.fc_out.parameters():
+#     param.requires_grad = True
 
 criterion = nn.MSELoss()
 optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters()), lr=0.001)
@@ -235,51 +269,70 @@ optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters(
 # Training Loop
 train_losses: List[float] = []
 val_losses: List[float] = []
-epochs = 3
+epochs = 20
+
+#dimensiunea modelului
+# attention head - optimizare / script optimizare optuna ( divizivil cu dim modelul/tensoer care a=e acum 16
+# cat de mult crestere dim de intrare si cat de mult prezice
+# early stopping si la al doilea
+#
+
 
 for epoch in range(epochs):
     model.train()
     total_loss = 0
-    for x_values, x_time, x_features, user_id, y in new_train_loader:
-        # Input shapes: x_values: [batch_size, input_len], y: [batch_size, pred_len]
+    for x_values, x_time, x_features, user_id, y in train_loader:
         x_values, x_time, x_features, user_id, y = (x_values.to(device), x_time.to(device),
                                                     x_features.to(device), user_id.to(device), y.to(device))
 
         optimizer.zero_grad()
-        predictions = model(x_values, x_time, x_features, user_id)  # Output: [batch_size, new_pred_len]
+        predictions = model(x_values, x_time, x_features, user_id)
         loss = criterion(predictions, y)
         loss.backward()
         optimizer.step()
         total_loss += loss.item()
 
-    avg_loss = total_loss / len(new_train_loader)
-    train_losses.append(avg_loss)
-    print(f"Epoch {epoch + 1}/{epochs}, Loss: {avg_loss:.4f}")
+    avg_train_loss = total_loss / len(train_loader)
+    train_losses.append(avg_train_loss)
+    print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_train_loss:.4f}")
+
+    model.eval()
+    total_val_loss = 0
+    with torch.no_grad():
+        for x_values, x_time, x_features, user_id, y in val_loader:
+            x_values, x_time, x_features, user_id, y = (x_values.to(device), x_time.to(device),
+                                                        x_features.to(device), user_id.to(device), y.to(device))
+            predictions = model(x_values, x_time, x_features, user_id)
+            val_loss = criterion(predictions, y)
+            total_val_loss += val_loss.item()
+
+    avg_val_loss = total_val_loss / len(val_loader)
+    val_losses.append(avg_val_loss)
+    print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {avg_val_loss:.4f}")
 
 torch.save(model.state_dict(), "best_model_transfer_learning.pth")
-print("Modelul actualizat a fost salvat în 'best_model_transfer_learning.pth'")
 
-# Generate & Save Predictions (Denormalized)
-model.eval()
-total_val_loss = 0
+def save_loss_to_csv(train_losses, val_losses, filename="/home/ioana/Desktop/Model_Licenta/output2/train_val_losses.csv"):
+    df = pd.DataFrame({
+        'epoch': list(range(1, len(train_losses) + 1)),
+        'train_loss': train_losses,
+        'val_loss': val_losses
+    })
+    df.to_csv(filename, index=False)
+
+save_loss_to_csv(train_losses, val_losses)
+
 y_true_all, y_pred_all, times_all, user_ids_all = [], [], [], []
+model.eval()
 with torch.no_grad():
-    for x_values, x_time, x_features, user_id, y in new_train_loader:
+    for x_values, x_time, x_features, user_id, y in val_loader:
         x_values, x_time, x_features, user_id, y = (x_values.to(device), x_time.to(device),
                                                     x_features.to(device), user_id.to(device), y.to(device))
-
         predictions = model(x_values, x_time, x_features, user_id)
         y_true_all.extend(y.cpu().numpy().flatten().tolist())
         y_pred_all.extend(predictions.cpu().numpy().flatten().tolist())
         times_batch = pd.to_datetime(x_time[:, -1].cpu().numpy(), unit='s', origin='unix', utc=True).astype(str).tolist()
         times_all.extend(times_batch)
         user_ids_all.extend(user_id.cpu().numpy().flatten().tolist())
-        val_loss = criterion(predictions, y)
-        total_val_loss += val_loss.item()
 
-    avg_val_loss = total_val_loss / len(new_train_loader)
-    val_losses.append(avg_val_loss)
-    print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {avg_val_loss:.4f}")
-
-save_loss_to_csv(train_losses, val_losses)
 save_predictions2_to_csv(user_ids_all, times_all, y_true_all, y_pred_all, min_value, max_value, filename="predictions_transfer_learning.csv")
