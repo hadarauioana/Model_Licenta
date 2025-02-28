@@ -13,7 +13,6 @@ CREATE TABLE loss (
     train_loss FLOAT,
     val_loss FLOAT
 );
-
 -- Create 'prediction_hr' table
 CREATE TABLE prediction_hr (
     user_id INT,
@@ -21,4 +20,44 @@ CREATE TABLE prediction_hr (
     real_value FLOAT,
     predicted_value FLOAT
 );
+
+
+
+
+-- Create 'prediction_hr' table
+CREATE TABLE prediction_first_hr (
+    user_id INT,
+    time DATETIME,
+    real_value FLOAT,
+    predicted_value FLOAT
+);
+
+-- Create 'prediction_hr' table
+CREATE TABLE test_first_hr (
+    user_id INT,
+    time DATETIME,
+    real_value FLOAT,
+    predicted_value FLOAT
+);
+
+-- Create 'loss' table
+CREATE TABLE test_first_loss (
+    time DATETIME NOT NULL PRIMARY KEY,
+    MAE FLOAT,
+    MSE FLOAT,
+    R2 FLOAT
+);
+
+
+-- Create 'loss' table
+CREATE TABLE first_loss (
+    epoch INT NOT NULL PRIMARY KEY,
+    time DATETIME,
+    train_loss FLOAT,
+    val_loss FLOAT,
+    MAE FLOAT,
+    MSE FLOAT,
+    R2 FLOAT
+);
+
 

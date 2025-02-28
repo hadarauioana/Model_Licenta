@@ -48,20 +48,28 @@ try:
     print(f" {prediction_rows} rows inserted into 'prediction_hr' table.")
 
     #  Insert Losses into loss
-    insert_loss_query = """
-    INSERT INTO loss (epoch, train_loss, val_loss)
-    VALUES (%s, %s, %s);
+    # column_names = ["Time", "Epoch", "Train Loss", "Validation Loss", "MAE", "MSE", "R²"]
+    #
+    # df = pd.read_csv(losses_csv, names=column_names)
+
+    # Convert DataFrame to a list of tuples for insertion
+    data_to_insert = [
+        (row["Time"], int(row["Epoch"]), float(row["Train Loss"]), float(row["Validation Loss"]),
+         float(row["MAE"]), float(row["MSE"]), float(row["R²"]))
+        for _, row in losses_data.iterrows()
+    ]
+
+    # SQL Query for batch insertion
+    insert_query = """
+        INSERT INTO first_loss (time, epoch, train_loss, val_loss, mae, mse, r_squared)
+        VALUES (%s, %s, %s, %s, %s, %s, %s);
     """
 
-    for _, row in losses_data.iterrows():
-        cursor.execute(insert_loss_query, (
-            int(row['epoch']),
-            float(row['train_loss']),
-            float(row['val_loss'])
-        ))
+    # Execute batch insertion
+    cursor.executemany(insert_query, data_to_insert)
+    conn.commit()
 
-    loss_rows = cursor.rowcount
-    print(f" {loss_rows} rows inserted into 'loss' table.")
+    print(f"{cursor.rowcount} rows inserted into 'first_loss' table.")
 
     #  Commit all changes
     connection.commit()

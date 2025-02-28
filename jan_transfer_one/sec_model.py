@@ -1,4 +1,6 @@
 from datetime import datetime
+
+from sklearn.metrics import mean_squared_error, mean_absolute_error, r2_score
 from sklearn.model_selection import GroupKFold
 import pandas as pd
 import numpy as np
@@ -210,7 +212,7 @@ def save_predictions2_to_csv(user_ids: List[int], times: List[str], y_true: List
     predictions_df.to_csv(file_path_pred, index=False)
     print(f"Predictions saved to: {file_path_pred}")
 
-
+print(torch.cuda.is_available())
 device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Device in use: {device}")
 
@@ -229,7 +231,6 @@ dataset = HeartRateDataset(new_data, input_len, new_pred_len, overlap, user_id_m
 
 scaler: MinMaxScaler = MinMaxScaler()
 scaler.fit(new_data["Value"].values.reshape(-1, 1))
-
 
 
 # Split dataset using GroupKFold
@@ -270,6 +271,7 @@ optimizer = torch.optim.Adam(filter(lambda p: p.requires_grad, model.parameters(
 train_losses: List[float] = []
 val_losses: List[float] = []
 epochs = 20
+mse_scores, mae_scores, r2_scores = [], [], []
 
 #dimensiunea modelului
 # attention head - optimizare / script optimizare optuna ( divizivil cu dim modelul/tensoer care a=e acum 16
@@ -280,7 +282,22 @@ epochs = 20
 
 for epoch in range(epochs):
     model.train()
-    total_loss = 0
+    total_train_loss = 0
+    total_val_loss = 0
+
+    # Define column names
+    column_names = [
+        "Time", "Epoch", "Train Loss", "Validation Loss",
+        "MAE Norm", "MAE Denorm", "MSE Norm", "MSE Denorm", "R² Norm", "R² Denorm"
+    ]
+    results_file = "/home/ioana/Desktop/Model_Licenta/output2/training_results.csv"
+
+    # Ensure CSV file exists with headers
+    if not os.path.exists(results_file):
+        pd.DataFrame(columns=column_names).to_csv(results_file, index=False)
+
+
+
     for x_values, x_time, x_features, user_id, y in train_loader:
         x_values, x_time, x_features, user_id, y = (x_values.to(device), x_time.to(device),
                                                     x_features.to(device), user_id.to(device), y.to(device))
@@ -290,24 +307,66 @@ for epoch in range(epochs):
         loss = criterion(predictions, y)
         loss.backward()
         optimizer.step()
-        total_loss += loss.item()
+        total_train_loss += loss.item()
 
-    avg_train_loss = total_loss / len(train_loader)
+    avg_train_loss = total_train_loss / len(train_loader)
     train_losses.append(avg_train_loss)
     print(f"Epoch {epoch + 1}/{epochs}, Train Loss: {avg_train_loss:.4f}")
 
     model.eval()
     total_val_loss = 0
+    y_true, y_pred, times, user_ids_list = [], [], [], []
+
     with torch.no_grad():
         for x_values, x_time, x_features, user_id, y in val_loader:
             x_values, x_time, x_features, user_id, y = (x_values.to(device), x_time.to(device),
                                                         x_features.to(device), user_id.to(device), y.to(device))
             predictions = model(x_values, x_time, x_features, user_id)
-            val_loss = criterion(predictions, y)
-            total_val_loss += val_loss.item()
+            loss = criterion(predictions, y)
+            total_val_loss += loss.item()
+
+            y_true_denorm = (y.cpu().numpy().flatten() * (max_value - min_value)) + min_value
+            y_pred_denorm = (predictions.cpu().numpy().flatten() * (max_value - min_value)) + min_value
+
+            batch_size, pred_len = predictions.shape
+            times_batch = x_time[:, -1].cpu().numpy()  # Last timestamp per sequence
+            times_batch = np.repeat(times_batch, pred_len)  # Repeat per predicted step
+            times_batch = pd.to_datetime(times_batch, unit='s', origin='unix').astype(str).tolist()
+
+            user_ids_batch = np.repeat(user_id.cpu().numpy().flatten(), pred_len)
+            user_ids_list.extend(user_ids_batch.tolist())
+
+            y_true.extend(y_true_denorm.tolist())
+            y_pred.extend(y_pred_denorm.tolist())
+            times.extend(times_batch)
 
     avg_val_loss = total_val_loss / len(val_loader)
     val_losses.append(avg_val_loss)
+
+    # Evaluation metrics
+    mse_norm = mean_squared_error(y_true, y_pred)
+    mae_norm = mean_absolute_error(y_true, y_pred)
+    r2_norm = r2_score(y_true, y_pred)
+
+    mae_denorm = mean_absolute_error(y_true_denorm, y_pred_denorm)
+    mse_denorm = mean_squared_error(y_true_denorm, y_pred_denorm)
+    r2_denorm = r2_score(y_true_denorm, y_pred_denorm)
+
+    mae_scores.append(mae_denorm)
+    mse_scores.append(mse_denorm)
+    r2_scores.append(r2_denorm)
+
+    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    column_names = ["Time", "Epoch", "Train Loss", "Validation Loss", "MAE", "MSE", "R²"]
+    # Save results to CSV (append mode)
+    new_row = pd.DataFrame([[timestamp, epoch + 1, avg_train_loss, avg_val_loss, mae_denorm, mse_denorm, r2_denorm]],
+                           columns=["Time", "Epoch", "Train Loss", "Validation Loss", "MAE", "MSE", "R²"])
+    new_row.to_csv(results_file, mode='a', header=False, index=False)
+
+    print(
+        f"Epoch {epoch + 1}/{epochs} | Train Loss: {avg_train_loss:.4f} | "
+        f"Val Loss: {avg_val_loss:.4f} | MAE denorm: {mae_denorm:.4f} | MSE denorm: {mse_denorm:.4f} | R² denorm: {r2_denorm:.4f}"
+    )
     print(f"Epoch {epoch + 1}/{epochs}, Validation Loss: {avg_val_loss:.4f}")
 
 torch.save(model.state_dict(), "best_model_transfer_learning.pth")
@@ -335,4 +394,4 @@ with torch.no_grad():
         times_all.extend(times_batch)
         user_ids_all.extend(user_id.cpu().numpy().flatten().tolist())
 
-save_predictions2_to_csv(user_ids_all, times_all, y_true_all, y_pred_all, min_value, max_value, filename="predictions_transfer_learning.csv")
+save_predictions2_to_csv(user_ids_all, times_all, y_true_all, y_pred_all, min_value, max_value, filename="/home/ioana/Desktop/Model_Licenta/output2/predictions_transfer_learning.csv")
