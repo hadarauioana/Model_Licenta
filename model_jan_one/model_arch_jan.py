@@ -1,10 +1,13 @@
+import pickle
+
 import pandas as pd
 import numpy as np
 import math
 import torch
 from torch import nn
 from torch.utils.data import Dataset, DataLoader, random_split
-from sklearn.preprocessing import MinMaxScaler
+from sklearn.preprocessing import MinMaxScaler, LabelEncoder
+
 
 # Dataset class for Heart Rate data
 class HeartRateDataset(Dataset):
@@ -24,13 +27,17 @@ class HeartRateDataset(Dataset):
         self.user_id_map = user_id_map  # Mapping of user IDs to numeric indices
 
         # Initialize Min-Max scaler
-        scaler = MinMaxScaler()
+        # scaler = MinMaxScaler()
+        with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'rb') as f:
+            min_value, max_value = pickle.load(f)
 
         # Process each patient group
         for patient_id, group in df.groupby("Id"):
             # Sort group by timestamp and normalize heart rate values
             group = group.sort_values("Time").reset_index(drop=True)
-            values = scaler.fit_transform(group["Value"].values.reshape(-1, 1)).flatten()
+            #values = scaler.fit_transform(group["Value"].values.reshape(-1, 1)).flatten()
+            values = (group["Value"] - min_value) / (max_value - min_value)
+            values = values.to_numpy()  # Convert to numpy array if needed
 
             # Extract real timestamps and temporal features
             timestamps = group["Time"].values  # Shape: [num_samples]
@@ -49,6 +56,57 @@ class HeartRateDataset(Dataset):
                 y = values[i + input_len:i + input_len + pred_len]  # Shape: [pred_len]
                 user_id = self.user_id_map[patient_id]  # Single scalar
                 self.data.append((x_values, x_time, x_features, user_id, y))
+
+        # Process each patient group
+        # for patient_id, group in df.groupby("Id"):
+        #     # Sort group by timestamp
+        #     group = group.sort_values("Time").reset_index(drop=True)
+        #
+        #     # Ensure numeric user_id mapping
+        #     user_id = self.user_id_map.get(patient_id, -1)
+
+            # Find continuous segments where there are at least 60 consecutive minutes
+            # group["TimeDiff"] = group["Time"].diff().dt.total_seconds().fillna(180)
+            # group["Segment"] = (group["TimeDiff"] > 180).cumsum()
+
+            # df_resampled = df.set_index("Time").resample("1T").mean()
+            # # Step 4: Apply Exponential Moving Average (EMA) to fill missing values
+            # df_resampled["Value"] = df_resampled["Value"].ewm(span=5, adjust=False).mean()
+            # # Step 5: Reset index to make 'Time' a column again
+            # df_resampled = df_resampled.reset_index()
+            #
+            # # Step 6: Merge Segmentation Back (keep original time-based gaps)
+            # df_final = df_resampled.merge(group[["Time", "Segment"]], on="Time", how="left").fillna(method="ffill")
+
+            # for _, segment in group.groupby("Segment"):
+            #     # if len(segment) < 40:
+            #     #     continue  # Skip segments that are too short to generate at least 2 windows
+            #
+            #     # Normalize heart rate values
+            #     values = scaler.fit_transform(segment["Value"].values.reshape(-1, 1)).flatten()
+            #
+            #     # Extract real timestamps and temporal features
+            #     timestamps = segment["Time"].values
+            #     segment["Hour"] = segment["Time"].dt.hour / 23.0  # Normalize hour to [0, 1]
+            #     segment["DayOfWeek"] = segment["Time"].dt.dayofweek / 6.0  # Normalize day of week to [0, 1]
+            #     time_features = segment[["Hour", "DayOfWeek"]].values
+            #
+            #     # Define time-based sliding window step
+            #     step = 60  # Move by 60 minutes
+            #
+            #     # Iterate over windows
+            #     start_idx = 0
+            #     while start_idx + input_len + pred_len <= len(values):
+            #         x_values = values[start_idx:start_idx + input_len]  # [input_len]
+            #         x_time = timestamps[start_idx:start_idx + input_len]  # [input_len]
+            #         x_features = time_features[start_idx:start_idx + input_len]  # [input_len, 2]
+            #         y = values[start_idx + input_len:start_idx + input_len + pred_len]  # [pred_len]
+            #
+            #         # Append data
+            #         self.data.append((x_values, x_time, x_features, user_id, y))
+            #
+            #         # Move the window by 60 minutes
+            #         start_idx += step
 
     def __len__(self) -> int:
         return len(self.data)
@@ -149,17 +207,22 @@ class TransformerModel(nn.Module):
 
         # Concatenate embeddings
         x = torch.cat((value_embed, time_embed, user_embed), dim=-1)  # [batch, seq_len, d_model]
-
+        # print(f"\n[ENCODER INPUT - x] Shape: {x.shape}")
+        # print(f"[ENCODER INPUT - x] Sample Data:\n{x[0, :5, :5]}")  # Print first sequence, first 5 timesteps, first 5 features
         #Combines the three embeddings along the feature dimension. The resulting tensor has shape [batch, seq_len, d_model] because the individual dimensions add up to d_model.
 
         # Add positional encoding
         pos_encoding = self.generate_positional_encoding(seq_len).to(x.device)  # [1, seq_len, d_model]
         x += pos_encoding[:, :seq_len, :]
+        # print(f"\n[ENCODER INPUT + POS ENCODING] Shape: {x.shape}")
+        # print(f"[ENCODER INPUT + POS ENCODING] Sample Data:\n{x[0, :5, :5]}")
 
         # Shift the input by one step for the decoder (typical autoregressive target)
         # tgt starts with a zero tensor or last known value and shifts the rest of the input
         tgt = torch.zeros_like(x[:, :1, :]).to(x.device)  # Initial token (e.g., start token)
         tgt = torch.cat([tgt, x[:, :-1, :]], dim=1)  # Shifted target sequence
+        # print(f"\n[DECODER INPUT - tgt] Shape: {tgt.shape}")
+        # print(f"[DECODER INPUT - tgt] Sample Data:\n{tgt[0, :5, :5]}")
 
         # Create target mask (causal mask for autoregressive prediction)
         tgt_mask = self.transformer.generate_square_subsequent_mask(seq_len).to(x.device)
@@ -171,9 +234,14 @@ class TransformerModel(nn.Module):
             tgt=tgt,
             tgt_mask=tgt_mask
         )  # [batch, seq_len, d_model]
+        # print(f"\n[TRANSFORMER OUTPUT] Shape: {output.shape}")
+        # print(f"[TRANSFORMER OUTPUT] Sample Data:\n{output[0, :5, :5]}")
 
         # Predict next sequence (use last output step for forecasting)
-        return self.fc_out(output[:, -1, :])  # [batch, pred_len]
+        final_output = self.fc_out(output[:, -1, :])  # [batch, pred_len]
+        # print(f"\n[FINAL OUTPUT] Shape: {final_output.shape}")
+        # print(f"[FINAL OUTPUT] Sample Data:\n{final_output[0]}")
+        return final_output
 
 
 
