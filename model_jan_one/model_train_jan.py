@@ -75,7 +75,11 @@ def train_model(
 
     # Lists to store metrics
     results = []
+    import time
+    start_total_time = time.time()  # Start overall time tracking
+
     for epoch in range(epochs):
+        start_epoch_time = time.time()  # Track epoch time
         # Training phase
         model.train()
         total_train_loss = 0.0
@@ -173,8 +177,12 @@ def train_model(
                                columns=column_names)
         new_row.to_csv(results_file, mode='a', header=False, index=False)
 
+        import time
+        end_epoch_time = time.time()
+        epoch_duration = end_epoch_time - start_epoch_time  # Time for one epoch
+
         print(
-            f"Epoch {epoch + 1}/{epochs} | Train Loss: {avg_train_loss:.4f} | "
+            f"Epoch {epoch + 1}/{epochs} | Train Loss: {avg_train_loss:.4f} | Epoch Duration: {epoch_duration:.2f} sec "
             f"Val Loss: {avg_val_loss:.4f} | MAE denorm: {mae_denorm:.4f} | MSE denorm: {mse_denorm:.4f} | R² denorm: {r2_denorm:.4f}"
         )
 
@@ -186,6 +194,9 @@ def train_model(
 
             # Save predictions for the best model
             save_predictions_to_csv(y_true, y_pred, times, user_dList_duplicate, filename='best_model_predictions_with_time.csv')
+
+    total_training_time = time.time() - start_total_time
+    print(f"Total training time: {total_training_time:.2f} sec")
 
    # Save final model after all epochs
     torch.save(model.state_dict(), "final_model.pth")
@@ -261,12 +272,12 @@ def train_model(
     print(f"  R² Score: {r2_test:.4f}")
 
     # Save predictions to CSV
-    print(y_true_test[0])
-    print(y_pred_test[0])
-    print(times_test[0])
-    print(times_test)
-    print(user_ids_list_test[0])
-    print(user_ids_list_test)
+    # print(y_true_test[0])
+    # print(y_pred_test[0])
+    # print(times_test[0])
+    # print(times_test)
+    # print(user_ids_list_test[0])
+    # print(user_ids_list_test)
     save_predictions_to_csv(y_true_test, y_pred_test, times_test, user_ids_list_test, filename="test_set_predictions.csv")
 
 
