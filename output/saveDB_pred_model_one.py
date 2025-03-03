@@ -38,7 +38,7 @@ db_config = {
     'host': '172.19.0.4',
     'user': 'root',
     'password': 'pass',
-    'database': 'lic_feb1'
+    'database': 'lic_feb3'
 }
 
 try:
@@ -47,65 +47,65 @@ try:
     cursor = connection.cursor()
 
     # Insert Predictions into prediction_hr
-    # insert_prediction_query = """
-    # INSERT INTO prediction_first_hr (user_id, time, real_value, predicted_value)
-    # VALUES (%s, %s, %s, %s);
-    # """
-    #
-    # for _, row in predictions_data.iterrows():
-    #     cursor.execute(insert_prediction_query, (
-    #         int(row['user_id']),
-    #         row['time'],
-    #         float(row['real_value']),
-    #         float(row['predicted_value'])
-    #     ))
-    #
-    # prediction_rows = cursor.rowcount
-    # print(f" {prediction_rows} rows inserted into 'prediction_hr' table.")
-    #
-    # #  Insert Losses into first_loss, all metrics
-    #
-    # insert_loss_query = """
-    # INSERT INTO first_loss (epoch,time, train_loss, val_loss,MAE,MSE,R2)
-    # VALUES (%s, %s, %s,%s, %s, %s, %s);
-    # """
-    #
-    # for _, row in losses_data.iterrows():
-    #     cursor.execute(insert_loss_query, (
-    #         int(row['Epoch']),
-    #         row["Time"].strftime('%Y-%m-%d %H:%M:%S'),
-    #         float(row['Train Loss']),
-    #         float(row['Validation Loss']),
-    #         float(row['MAE']),
-    #         float(row['MSE']),
-    #         float(row['R2'])
-    #     ))
-    #
-    # loss_rows = cursor.rowcount
-    # print(f" {loss_rows} rows inserted into 'loss' table.")
-    #
-    # #TESTTTT
-    # # Insert Predictions into prediction_hr
-    # insert_prediction_test_query = """
-    #     INSERT INTO test_first_hr (user_id, time, real_value, predicted_value)
-    #     VALUES (%s, %s, %s, %s);
-    #     """
-    #
-    # for _, row in predictions_data_test.iterrows():
-    #     cursor.execute(insert_prediction_test_query, (
-    #         int(row['user_id']),
-    #         row['time'],
-    #         float(row['real_value']),
-    #         float(row['predicted_value'])
-    #     ))
-    #
-    # prediction_rows_test = cursor.rowcount
-    # print(f"TESTT {prediction_rows_test} rows inserted into 'prediction_hr' table.")
+    insert_prediction_query = """
+    INSERT INTO prediction_t1 (user_id, time, real_value, predicted_value)
+    VALUES (%s, %s, %s, %s);
+    """
+
+    for _, row in predictions_data.iterrows():
+        cursor.execute(insert_prediction_query, (
+            int(row['user_id']),
+            row['time'],
+            float(row['real_value']),
+            float(row['predicted_value'])
+        ))
+
+    prediction_rows = cursor.rowcount
+    print(f" {prediction_rows} rows inserted into 'prediction_t1' table.")
+
+    #  Insert Losses into first_loss, all metrics
+
+    insert_loss_query = """
+    INSERT INTO loss_t1 (epoch,time, train_loss, val_loss,MAE,MSE,R2)
+    VALUES (%s, %s, %s,%s, %s, %s, %s);
+    """
+
+    for _, row in losses_data.iterrows():
+        cursor.execute(insert_loss_query, (
+            int(row['Epoch']),
+            row["Time"].strftime('%Y-%m-%d %H:%M:%S'),
+            float(row['Train Loss']),
+            float(row['Validation Loss']),
+            float(row['MAE']),
+            float(row['MSE']),
+            float(row['R2'])
+        ))
+
+    loss_rows = cursor.rowcount
+    print(f" {loss_rows} rows inserted into 'loss' table.")
+
+    #TESTTTT
+    # Insert Predictions into prediction_hr
+    insert_prediction_test_query = """
+        INSERT INTO test_t1 (user_id, time, real_value, predicted_value)
+        VALUES (%s, %s, %s, %s);
+        """
+
+    for _, row in predictions_data_test.iterrows():
+        cursor.execute(insert_prediction_test_query, (
+            int(row['user_id']),
+            row['time'],
+            float(row['real_value']),
+            float(row['predicted_value'])
+        ))
+
+    prediction_rows_test = cursor.rowcount
+    print(f"TESTT {prediction_rows_test} rows inserted into 'prediction_hr' table.")
 
     #  Insert Losses into first_loss, all metrics
 
     insert_loss_query_test = """
-        INSERT INTO test_first_loss (time,MAE,MSE,R2)
+        INSERT INTO test_loss_t1 (time,MAE,MSE,R2)
         VALUES (%s, %s, %s,%s);
         """
 
