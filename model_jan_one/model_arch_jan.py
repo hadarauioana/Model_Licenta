@@ -136,7 +136,7 @@ class HeartRateDataset(Dataset):
 # Transformer Model
 class TransformerModel(nn.Module):
     def __init__(self, input_dim: int, time_dim: int, d_model: int, nhead: int, num_layers: int, num_users: int,
-                 embedding_dim: int = 16, pred_len: int = 5, dropout: float = 0.1):
+                 embedding_dim: int = 16, pred_len: int = 10, dropout: float = 0.1):
         """
         Parameters:
         - input_dim: Dimensionality of input values (e.g., 1 for univariate time series).
