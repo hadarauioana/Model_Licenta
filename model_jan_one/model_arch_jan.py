@@ -161,7 +161,7 @@ class TransformerModel(nn.Module):
         self.value_embedding = nn.Linear(input_dim, value_dim)  # [batch, seq_len, value_dim]
         self.time_embedding = nn.Linear(time_dim, time_dim_adjusted)  # [batch, seq_len, time_dim_adjusted]
         self.user_embedding = nn.Embedding(num_users, embedding_dim)  # [batch, embedding_dim]
-        self.user_projection = nn.Linear(embedding_dim, user_dim)  # [batch, user_dim] projects the raw user embedding into the space with dimension user_dim so that all three parts (value, time, user) add up to d_model.
+        # self.user_projection = nn.Linear(embedding_dim, user_dim)  # [batch, user_dim] projects the raw user embedding into the space with dimension user_dim so that all three parts (value, time, user) add up to d_model.
 
         # Define Transformer
         self.transformer = nn.Transformer(
@@ -202,7 +202,7 @@ class TransformerModel(nn.Module):
         # Compute embeddings
         value_embed = self.value_embedding(x_values.unsqueeze(-1))  # [batch, seq_len, value_dim]
         time_embed = self.time_embedding(x_features)  # [batch, seq_len, time_dim_adjusted]
-        user_embed = self.user_projection(self.user_embedding(user_id)).unsqueeze(1).repeat(1, seq_len, 1)  # [batch, seq_len, user_dim]
+        user_embed = self.user_embedding(user_id).unsqueeze(1).repeat(1, seq_len, 1)  # [batch, seq_len, user_dim]
         # --adds a sequence dimension to make it [batch, 1, user_dim]                --replicates the user embedding along the sequence dimension so that it can be concatenated with other embeddings, resulting in [batch, seq_len, user_dim].
 
         # Concatenate embeddings
