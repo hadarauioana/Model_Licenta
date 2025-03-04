@@ -6,9 +6,11 @@ lic_feb2- maresc dimensiunea modelului   256
 
 lic_feb3 - 128
 
+lic-feb 4- lag1 min, lag2 min, linear
 
 
-create database lic_feb3;
+
+create database lic_feb4;
 
 -- Create 'loss' table
 CREATE TABLE loss_t1 (
