@@ -26,6 +26,8 @@ class HeartRateDataset(Dataset):
         self.overlap = overlap  # Overlap between windows
         self.user_id_map = user_id_map  # Mapping of user IDs to numeric indices
 
+        # engineer feature - lag10, la
+
         # Initialize Min-Max scaler
         # scaler = MinMaxScaler()
         with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'rb') as f:
@@ -38,6 +40,16 @@ class HeartRateDataset(Dataset):
             #values = scaler.fit_transform(group["Value"].values.reshape(-1, 1)).flatten()
             values = (group["Value"] - min_value) / (max_value - min_value)
             values = values.to_numpy()  # Convert to numpy array if needed
+
+            # Create lag features
+            group["lag_1"] = group["Value"].shift(1)  # Lag of 1 minute
+            group["lag_5"] = group["Value"].shift(5)  # Lag of 5 minutes
+            lag1 = (group["lag_1"] - min_value) / (max_value - min_value)
+            lag5 = (group["lag_5"] - min_value) / (max_value - min_value)
+            # lags_features = group[[lag1, lag5]].values  # Shape: [num_samples, 2]
+            lag1 = lag1.to_numpy()
+            lag5 = lag5.to_numpy()
+
 
             # Extract real timestamps and temporal features
             timestamps = group["Time"].values  # Shape: [num_samples]
@@ -53,9 +65,12 @@ class HeartRateDataset(Dataset):
                 x_values = values[i:i + input_len]  # Shape: [input_len]
                 x_time = timestamps[i:i + input_len]  # Shape: [input_len]
                 x_features = time_features[i:i + input_len]  # Shape: [input_len, 2]
+                x_lag1 = lag1[i:i + input_len]
+                x_lag5 = lag5[i:i + input_len]
+
                 y = values[i + input_len:i + input_len + pred_len]  # Shape: [pred_len]
                 user_id = self.user_id_map[patient_id]  # Single scalar
-                self.data.append((x_values, x_time, x_features, user_id, y))
+                self.data.append((x_values, x_time, x_features,x_lag1,x_lag5, user_id, y))
 
         # Process each patient group
         # for patient_id, group in df.groupby("Id"):
@@ -120,7 +135,7 @@ class HeartRateDataset(Dataset):
         - user_id: User ID index. Shape: Scalar.
         - y: Future normalized values. Shape: [pred_len]
         """
-        x_values, x_time, x_features, user_id, y = self.data[idx]
+        x_values, x_time, x_features,x_lag1,x_lag5, user_id, y = self.data[idx]
 
         # Convert datetime64 to seconds since epoch
         x_time_numeric = (x_time.astype('datetime64[s]') - np.datetime64('1970-01-01T00:00:00Z')).astype('int')
@@ -129,6 +144,8 @@ class HeartRateDataset(Dataset):
             torch.tensor(x_values, dtype=torch.float32),  # [input_len]
             torch.tensor(x_time_numeric, dtype=torch.float32),  # [input_len]
             torch.tensor(x_features, dtype=torch.float32),  # [input_len, 2]
+            torch.tensor(x_lag1, dtype=torch.float32),  # [input_len]
+            torch.tensor(x_lag5, dtype=torch.float32),  # [input_len]
             torch.tensor(user_id, dtype=torch.long),  # Scalar
             torch.tensor(y, dtype=torch.float32)  # [pred_len]
         )
@@ -167,19 +184,22 @@ class TransformerModel(nn.Module):
         super(TransformerModel, self).__init__()
         self.d_model = d_model
 
+        # dmodel =128
+        #value di  =64
         # Calculate dimensions for embeddings - init
         value_dim = d_model // 2  # Larger portion for values
 
-        time_dim_adjusted = d_model // 4  # Smaller portion for time features
-        user_dim = d_model - (d_model // 2 + time_dim_adjusted)  # Remaining portion for user embedding
+        time_dim_adjusted = d_model // 8  # Smaller portion for time features
 
         # Define embedding layers
         self.value_embedding = nn.Linear(input_dim, value_dim)  # [batch, seq_len, value_dim]
+        self.lag1_embedding = nn.Linear(input_dim, embedding_dim)  # [batch, seq_len, value_dim]
+        self.lag5_embedding = nn.Linear(input_dim, embedding_dim)  # [batch, seq_len, value_dim]
 
         # Token Embedding for input values
         # self.value_embedding = TokenEmbedding(1, d_model // 2)  # Use convolution-based embedding
 
-        self.time_embedding = nn.Linear(time_dim, time_dim_adjusted)  # [batch, seq_len, time_dim_adjusted]
+        self.time_embedding = nn.Linear(time_dim, embedding_dim)  # [batch, seq_len, time_dim_adjusted]
         self.user_embedding = nn.Embedding(num_users, embedding_dim)  # [batch, embedding_dim]
 
         # Define Transformer
@@ -205,13 +225,14 @@ class TransformerModel(nn.Module):
         pe[:, 1::2] = torch.cos(positions * div_term)
         return pe.unsqueeze(0)
 
-    def forward(self, x_values: torch.Tensor, x_time: torch.Tensor, x_features: torch.Tensor, user_id: torch.Tensor):
+    def forward(self, x_values: torch.Tensor, x_time: torch.Tensor, x_features: torch.Tensor,x_lag1: torch.Tensor,x_lag5: torch.Tensor, user_id: torch.Tensor):
         """
         Forward pass for the model.
         Parameters:
         - x_values: Normalized input values. Shape: [batch, seq_len, input_dim]
         - x_time: Numeric timestamps. Shape: [batch, seq_len]
         - x_features: Temporal features. Shape: [batch, seq_len, time_dim]
+        - x_lag1: minuts before.  Shape: [batch, seq_len]
         - user_id: User ID indices. Shape: [batch]
 
         Returns: Predicted values. Shape: [batch, pred_len]
@@ -220,12 +241,15 @@ class TransformerModel(nn.Module):
 
         # Compute embeddings
         value_embed = self.value_embedding(x_values.unsqueeze(-1))  # [batch, seq_len, value_dim]
+        lag1_embed = self.lag1_embedding(x_values.unsqueeze(-1))  # [batch, seq_len, value_dim]
+        lag5_embed = self.lag5_embedding(x_values.unsqueeze(-1))  # [batch, seq_len, value_dim]
+
         time_embed = self.time_embedding(x_features)  # [batch, seq_len, time_dim_adjusted]
         user_embed = self.user_embedding(user_id).unsqueeze(1).repeat(1, seq_len, 1)  # [batch, seq_len, user_dim]
         # --adds a sequence dimension to make it [batch, 1, user_dim]                --replicates the user embedding along the sequence dimension so that it can be concatenated with other embeddings, resulting in [batch, seq_len, user_dim].
 
         # Concatenate embeddings
-        x = torch.cat((value_embed, time_embed, user_embed), dim=-1)  # [batch, seq_len, d_model]
+        x = torch.cat((value_embed, time_embed, user_embed, lag1_embed,lag5_embed), dim=-1)  # [batch, seq_len, d_model]
         # print(f"\n[ENCODER INPUT - x] Shape: {x.shape}")
         # print(f"[ENCODER INPUT - x] Sample Data:\n{x[0, :5, :5]}")  # Print first sequence, first 5 timesteps, first 5 features
         #Combines the three embeddings along the feature dimension. The resulting tensor has shape [batch, seq_len, d_model] because the individual dimensions add up to d_model.
