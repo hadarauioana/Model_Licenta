@@ -133,6 +133,21 @@ class HeartRateDataset(Dataset):
             torch.tensor(y, dtype=torch.float32)  # [pred_len]
         )
 
+class TokenEmbedding(nn.Module):
+    def __init__(self, c_in, d_model):
+        super(TokenEmbedding, self).__init__()
+        padding = 1 if torch.__version__ >= '1.5.0' else 2
+        self.tokenConv = nn.Conv1d(in_channels=c_in, out_channels=d_model,
+                                   kernel_size=3, padding=padding, padding_mode='circular')
+        for m in self.modules():
+            if isinstance(m, nn.Conv1d):
+                nn.init.kaiming_normal_(m.weight, mode='fan_in', nonlinearity='leaky_relu')
+
+    def forward(self, x):
+        x = self.tokenConv(x.permute(0, 2, 1)).transpose(1, 2)
+        return x
+
+
 # Transformer Model
 class TransformerModel(nn.Module):
     def __init__(self, input_dim: int, time_dim: int, d_model: int, nhead: int, num_layers: int, num_users: int,
@@ -152,16 +167,20 @@ class TransformerModel(nn.Module):
         super(TransformerModel, self).__init__()
         self.d_model = d_model
 
-        # Calculate dimensions for embeddings
+        # Calculate dimensions for embeddings - init
         value_dim = d_model // 2  # Larger portion for values
+
         time_dim_adjusted = d_model // 4  # Smaller portion for time features
-        user_dim = d_model - (value_dim + time_dim_adjusted)  # Remaining portion for user embedding
+        user_dim = d_model - (d_model // 2 + time_dim_adjusted)  # Remaining portion for user embedding
 
         # Define embedding layers
         self.value_embedding = nn.Linear(input_dim, value_dim)  # [batch, seq_len, value_dim]
+
+        # Token Embedding for input values
+        # self.value_embedding = TokenEmbedding(1, d_model // 2)  # Use convolution-based embedding
+
         self.time_embedding = nn.Linear(time_dim, time_dim_adjusted)  # [batch, seq_len, time_dim_adjusted]
         self.user_embedding = nn.Embedding(num_users, embedding_dim)  # [batch, embedding_dim]
-        # self.user_projection = nn.Linear(embedding_dim, user_dim)  # [batch, user_dim] projects the raw user embedding into the space with dimension user_dim so that all three parts (value, time, user) add up to d_model.
 
         # Define Transformer
         self.transformer = nn.Transformer(

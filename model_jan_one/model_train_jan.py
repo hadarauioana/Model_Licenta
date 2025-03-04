@@ -353,11 +353,11 @@ test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
 model: nn.Module = TransformerModel(
     input_dim=1,
     time_dim=2,
-    d_model=128,
+    d_model=64,
     nhead=4,
     num_layers=3,
     num_users=len(user_ids),
-    embedding_dim=32,
+    embedding_dim=16,
     pred_len=pred_len,
     dropout=0.1
 )
