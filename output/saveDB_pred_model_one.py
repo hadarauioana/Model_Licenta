@@ -38,7 +38,7 @@ db_config = {
     'host': '172.19.0.4',
     'user': 'root',
     'password': 'pass',
-    'database': 'lic_feb4'
+    'database': 'lic_feb5'
 }
 
 try:
