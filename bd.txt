@@ -8,9 +8,13 @@ lic_feb3 - 128
 
 lic-feb 4- lag1 min, lag2 min, linear
 
+lic feb5 - lag1 min, grad, token emb
 
 
-create database lic_feb4;
+
+
+
+create database lic_feb5;
 
 -- Create 'loss' table
 CREATE TABLE loss_t1 (

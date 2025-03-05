@@ -83,19 +83,28 @@ def train_model(
         # Training phase
         model.train()
         total_train_loss = 0.0
-        for x_values, x_time_numeric, x_features,x_log1, x_log5, user_id, y in train_loader:
-            x_values, x_time_numeric, x_features,x_log1, x_log5, user_id, y = (
+        for x_values, x_time_numeric, x_features,x_log1,x_gradients, user_id, y in train_loader:
+            # Debug NaN values before model forward pass
+            if torch.isnan(x_values).any():
+                print("NaN detected in x_values!")
+            if torch.isnan(x_features).any():
+                print("NaN detected in x_features!")
+            if torch.isnan(x_log1).any():
+                print("NaN detected in x_log1!")
+            if torch.isnan(x_gradients).any():
+                print("NaN detected in x_gradients!")
+            x_values, x_time_numeric, x_features,x_log1, x_gradients, user_id, y = (
                 x_values.to(device),
                 x_time_numeric.to(device),
                 x_features.to(device),
                 x_log1.to(device),
-                x_log5.to(device),
+                x_gradients.to(device),
                 user_id.to(device),
                 y.to(device)
             )
 
             optimizer.zero_grad()
-            predictions = model(x_values, x_time_numeric, x_features,x_log1, x_log5, user_id)
+            predictions = model(x_values, x_time_numeric, x_features,x_log1, x_gradients, user_id)
             loss = criterion(predictions, y)
             loss.backward()
             optimizer.step()
@@ -110,17 +119,17 @@ def train_model(
         y_true, y_pred, times, user_ids_list = [], [], [], []
 
         with torch.no_grad():
-            for x_values, x_time_numeric, x_features,x_log1, x_log5, user_id, y in val_loader:
-                x_values, x_time_numeric, x_features,x_log1, x_log5, user_id, y = (
+            for x_values, x_time_numeric, x_features,x_log1,x_gradients,  user_id, y in val_loader:
+                x_values, x_time_numeric, x_features,x_log1,x_gradients, user_id, y = (
                     x_values.to(device),
                     x_time_numeric.to(device),
                     x_features.to(device),
                     x_log1.to(device),
-                    x_log5.to(device),
+                    x_gradients.to(device),
                     user_id.to(device),
                     y.to(device)
                 )
-                predictions = model(x_values, x_time_numeric, x_features,x_log1, x_log5, user_id)
+                predictions = model(x_values, x_time_numeric, x_features,x_log1, x_gradients, user_id)
                 loss = criterion(predictions, y)
                 total_val_loss += loss.item()
 
@@ -214,18 +223,18 @@ def train_model(
     y_true_test, y_pred_test, times_test, user_ids_list_test = [], [], [], []
 
     with torch.no_grad():
-        for x_values_test, x_time_numeric_test, x_features_test, x_log1_test, x_log5_test,user_id_test, y_test in test_loader:
-            x_values_test, x_time_numeric_test, x_features_test,x_log1_test, x_log5_test, user_id_test, y_test = (
+        for x_values_test, x_time_numeric_test, x_features_test, x_log1_test,x_gradients_test,user_id_test, y_test in test_loader:
+            x_values_test, x_time_numeric_test, x_features_test,x_log1_test,x_gradients_test, user_id_test, y_test = (
                 x_values_test.to(device),
                 x_time_numeric_test.to(device),
                 x_features_test.to(device),
                 x_log1_test.to(device),
-                x_log5_test.to(device),
+                x_gradients_test.to(device),
                 user_id_test.to(device),
                 y_test.to(device)
             )
 
-            predictions_test = model(x_values_test, x_time_numeric_test, x_features_test, x_log1_test, x_log5_test, user_id_test)
+            predictions_test = model(x_values_test, x_time_numeric_test, x_features_test, x_log1_test,x_gradients_test, user_id_test)
 
             # Denormalize predictions and ground truth
             y_true_denorm_test = (y_test.cpu().numpy().flatten() * (max_value - min_value)) + min_value
@@ -359,7 +368,7 @@ test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
 model: nn.Module = TransformerModel(
     input_dim=1,
     time_dim=2,
-    d_model=128,
+    d_model=64,
     nhead=4,
     num_layers=3,
     num_users=len(user_ids),
