@@ -296,7 +296,6 @@ def train_model(
     save_predictions_to_csv(y_true_test, y_pred_test, times_test, user_ids_list_test, filename="test_set_predictions.csv")
 
 
-
 # Load dataset
 file_path: str = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_fitbit/fitbit_heartrate_merged_minutes.csv"
 data: pd.DataFrame = pd.read_csv(file_path)
@@ -317,7 +316,7 @@ with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'wb') as 
 print(f"Scaler parameters saved: min={min_value}, max={max_value}")
 
 # Define hyperparameters
-input_len: int = 30
+input_len: int = 40
 pred_len: int = 10
 overlap: int = 20
 batch_size: int = 64
