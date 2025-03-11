@@ -5,6 +5,7 @@ from torch import nn
 from torch.utils.data import Dataset, DataLoader, random_split
 from sklearn.preprocessing import MinMaxScaler
 
+
 # Heart Rate Dataset Class
 class HeartRateDataset(Dataset):
     def __init__(self, df, input_len, pred_len, overlap, user_id_map):

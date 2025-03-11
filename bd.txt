@@ -10,11 +10,13 @@ lic-feb 4- lag1 min, lag2 min, linear
 
 lic feb5 - lag1 min, grad, token emb
 
+lic feb bestR7 - r sq 0.7 (commit)
 
 
 
 
-create database lic_feb5;
+
+create database bestR7;
 
 -- Create 'loss' table
 CREATE TABLE loss_t1 (

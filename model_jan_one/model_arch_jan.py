@@ -85,56 +85,6 @@ class HeartRateDataset(Dataset):
                 user_id = self.user_id_map[patient_id]  # Single scalar
                 self.data.append((x_values, x_time, x_features,x_lag1,x_gradients, user_id, y))
 
-        # Process each patient group
-        # for patient_id, group in df.groupby("Id"):
-        #     # Sort group by timestamp
-        #     group = group.sort_values("Time").reset_index(drop=True)
-        #
-        #     # Ensure numeric user_id mapping
-        #     user_id = self.user_id_map.get(patient_id, -1)
-
-            # Find continuous segments where there are at least 60 consecutive minutes
-            # group["TimeDiff"] = group["Time"].diff().dt.total_seconds().fillna(180)
-            # group["Segment"] = (group["TimeDiff"] > 180).cumsum()
-
-            # df_resampled = df.set_index("Time").resample("1T").mean()
-            # # Step 4: Apply Exponential Moving Average (EMA) to fill missing values
-            # df_resampled["Value"] = df_resampled["Value"].ewm(span=5, adjust=False).mean()
-            # # Step 5: Reset index to make 'Time' a column again
-            # df_resampled = df_resampled.reset_index()
-            #
-            # # Step 6: Merge Segmentation Back (keep original time-based gaps)
-            # df_final = df_resampled.merge(group[["Time", "Segment"]], on="Time", how="left").fillna(method="ffill")
-
-            # for _, segment in group.groupby("Segment"):
-            #     # if len(segment) < 40:
-            #     #     continue  # Skip segments that are too short to generate at least 2 windows
-            #
-            #     # Normalize heart rate values
-            #     values = scaler.fit_transform(segment["Value"].values.reshape(-1, 1)).flatten()
-            #
-            #     # Extract real timestamps and temporal features
-            #     timestamps = segment["Time"].values
-            #     segment["Hour"] = segment["Time"].dt.hour / 23.0  # Normalize hour to [0, 1]
-            #     segment["DayOfWeek"] = segment["Time"].dt.dayofweek / 6.0  # Normalize day of week to [0, 1]
-            #     time_features = segment[["Hour", "DayOfWeek"]].values
-            #
-            #     # Define time-based sliding window step
-            #     step = 60  # Move by 60 minutes
-            #
-            #     # Iterate over windows
-            #     start_idx = 0
-            #     while start_idx + input_len + pred_len <= len(values):
-            #         x_values = values[start_idx:start_idx + input_len]  # [input_len]
-            #         x_time = timestamps[start_idx:start_idx + input_len]  # [input_len]
-            #         x_features = time_features[start_idx:start_idx + input_len]  # [input_len, 2]
-            #         y = values[start_idx + input_len:start_idx + input_len + pred_len]  # [pred_len]
-            #
-            #         # Append data
-            #         self.data.append((x_values, x_time, x_features, user_id, y))
-            #
-            #         # Move the window by 60 minutes
-            #         start_idx += step
 
     def __len__(self) -> int:
         return len(self.data)
@@ -197,14 +147,14 @@ class TransformerModel(nn.Module):
         super(TransformerModel, self).__init__()
         self.d_model = d_model
 
-        # dmodel =64
+        # dmodel =128
         #value di  =16
         # Calculate dimensions for embeddings - init
         value_dim = d_model // 4  # Larger portion for values 16
         time_dim = d_model // 4  # Larger portion for values  16
         lag1_dim = 8
         gradients_dim = 8
-        #embedding dim user - 16
+        #embedding dim user - 32
 
         # Define embedding layers
         # self.value_embedding = nn.Linear(input_dim, value_dim)  # [batch, seq_len, value_dim]
