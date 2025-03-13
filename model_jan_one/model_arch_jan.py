@@ -158,8 +158,8 @@ class TransformerModel(nn.Module):
 
         # Define embedding layers
         # self.value_embedding = nn.Linear(input_dim, value_dim)  # [batch, seq_len, value_dim]
-        self.lag1_embedding = nn.Linear(input_dim, lag1_dim)  # [batch, seq_len, value_dim]
-        self.gradients_embedding = nn.Linear(input_dim, gradients_dim)  # [batch, seq_len, value_dim]
+        self.lag1_embedding = TokenEmbedding(1, lag1_dim)  # [batch, seq_len, value_dim]
+        self.gradients_embedding = TokenEmbedding(1, gradients_dim)  # [batch, seq_len, value_dim]
 
         # Token Embedding for input values
         self.value_embedding = TokenEmbedding(1, value_dim)  # Use convolution-based embedding
