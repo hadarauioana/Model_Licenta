@@ -1,6 +1,7 @@
 import pandas as pd
 import numpy as np
 import torch
+import yaml
 import matplotlib.pyplot as plt
 import pickle
 from torch import nn
@@ -8,7 +9,10 @@ from torch.utils.data import Dataset, DataLoader, random_split
 from sklearn.preprocessing import MinMaxScaler
 from sklearn.model_selection import GroupKFold
 from sklearn.metrics import mean_absolute_error, r2_score, mean_squared_error
+from loss.dilate_loss import dilate_loss
 import os
+
+# from jan_transfer_one.sec_model import file_path
 from model_arch_jan import HeartRateDataset, TransformerModel
 from datetime import datetime
 import json
@@ -40,6 +44,8 @@ def save_min_max(min_val, max_val, filename="scaler_params.json"):
     with open(filename, "w") as f:
         json.dump({"min": min_val, "max": max_val}, f)
 
+# gama 0.01 initial , alpha init 0.5 cat contribuie fiecrae la loss final
+# 0,75 shape
 # Function to load min and max values
 def load_min_max(filename="scaler_params.json"):
     with open(filename, "r") as f:
@@ -105,7 +111,8 @@ def train_model(
 
             optimizer.zero_grad()
             predictions = model(x_values, x_time_numeric, x_features,x_log1, x_gradients, user_id)
-            loss = criterion(predictions, y)
+            # loss = criterion(predictions, y)
+            loss = dilate_loss(predictions,y,0.7,0.01,device)  # Replace criterion with dilate
             loss.backward()
             optimizer.step()
             total_train_loss += loss.item()
@@ -298,6 +305,7 @@ def train_model(
 
 # Load dataset
 file_path: str = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_fitbit/fitbit_heartrate_merged_minutes.csv"
+# file_path : str ="/home/ioana/Desktop/Preprocesare_Date_Licenta/process_pmdata/filter_merged_processed_data_pmdata.csv"
 data: pd.DataFrame = pd.read_csv(file_path)
 
 data["Time"] = pd.to_datetime(data["Time"])
@@ -316,7 +324,7 @@ with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'wb') as 
 print(f"Scaler parameters saved: min={min_value}, max={max_value}")
 
 # Define hyperparameters
-input_len: int = 40
+input_len: int = 30
 pred_len: int = 10
 overlap: int = 20
 batch_size: int = 64
@@ -343,7 +351,7 @@ dataset: Dataset = HeartRateDataset(data, input_len, pred_len, overlap, user_id_
 # print(f"User ID: {user_id_map.items()}")  # Should now print an integer
 
 device: torch.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-print(f"Device in use: {device}")
+print(f"Device in use for model_train_jan: {device}")
 
 
 
@@ -363,6 +371,8 @@ train_loader: DataLoader = DataLoader(train_data, batch_size=batch_size, shuffle
 val_loader: DataLoader = DataLoader(val_data, batch_size=batch_size)
 test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
 
+print("DataLoader succsess")
+
 # Initialize model
 model: nn.Module = TransformerModel(
     input_dim=1,
@@ -377,8 +387,8 @@ model: nn.Module = TransformerModel(
 )
 
 criterion: nn.Module = nn.MSELoss()
-optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
-
+# optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
+optimizer =  torch.optim.Adam(model.parameters(), lr=0.001 , weight_decay=5e-8)
 # Train the model with early stopping
 train_model(user_id_map,model, train_loader, val_loader, criterion, optimizer, device, epochs=100)
 

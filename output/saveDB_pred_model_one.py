@@ -38,7 +38,7 @@ db_config = {
     'host': '172.19.0.4',
     'user': 'root',
     'password': 'pass',
-    'database': 'bestR7'
+    'database': 'bestR8'
 }
 
 try:
