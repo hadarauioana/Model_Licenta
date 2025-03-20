@@ -14,12 +14,14 @@ lic feb bestR7 - r sq 0.7 (commit)
 
 lic feb bestR8 - r sq 0.8 (token for val,lag,grad)
 
+lic mar_dilate_1  r sq 0.70
 
 
 
 
 
-create database bestR8;
+
+create database mar_dilate_1 ;
 
 -- Create 'loss' table
 CREATE TABLE loss_t1 (

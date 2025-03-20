@@ -111,8 +111,8 @@ def train_model(
 
             optimizer.zero_grad()
             predictions = model(x_values, x_time_numeric, x_features,x_log1, x_gradients, user_id)
-            # loss = criterion(predictions, y)
-            loss = dilate_loss(predictions,y,0.7,0.01,device)  # Replace criterion with dilate
+            loss = criterion(predictions, y)
+            # loss = dilate_loss(predictions,y,0.8,0.001,device)  # Replace criterion with dilate
             loss.backward()
             optimizer.step()
             total_train_loss += loss.item()
@@ -138,6 +138,7 @@ def train_model(
                 )
                 predictions = model(x_values, x_time_numeric, x_features,x_log1, x_gradients, user_id)
                 loss = criterion(predictions, y)
+                # loss = dilate_loss(predictions, y, 0.8, 0.001, device)  # Replace criterion with dilate
                 total_val_loss += loss.item()
 
                 y_true_denorm = (y.cpu().numpy().flatten() * (max_value - min_value)) + min_value
@@ -304,8 +305,8 @@ def train_model(
 
 
 # Load dataset
-file_path: str = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_fitbit/fitbit_heartrate_merged_minutes.csv"
-# file_path : str ="/home/ioana/Desktop/Preprocesare_Date_Licenta/process_pmdata/filter_merged_processed_data_pmdata.csv"
+# file_path: str = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_fitbit/fitbit_heartrate_merged_minutes.csv"
+file_path : str ="/home/ioana/Desktop/Preprocesare_Date_Licenta/process_pmdata/filter_merged_processed_data_pmdata.csv"
 data: pd.DataFrame = pd.read_csv(file_path)
 
 data["Time"] = pd.to_datetime(data["Time"])
@@ -324,7 +325,7 @@ with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'wb') as 
 print(f"Scaler parameters saved: min={min_value}, max={max_value}")
 
 # Define hyperparameters
-input_len: int = 30
+input_len: int = 40
 pred_len: int = 10
 overlap: int = 20
 batch_size: int = 64
@@ -366,6 +367,21 @@ val_idx, test_idx = next(GroupKFold(n_splits=2).split(val_test_idx, groups=val_t
 val_data = torch.utils.data.Subset(dataset, val_idx)
 test_data = torch.utils.data.Subset(dataset, test_idx)
 
+# Split dataset using GroupKFold
+group_kfold = GroupKFold(n_splits=5)
+groups = [user_id for (_, _, _, _,_,user_id, _) in dataset.data]
+train_idx, val_test_idx = next(group_kfold.split(dataset.data, groups=groups))
+val_test_groups = [groups[i] for i in val_test_idx]
+train_data = torch.utils.data.Subset(dataset, train_idx)
+
+val_idx, test_idx = next(GroupKFold(n_splits=2).split(val_test_idx, groups=val_test_groups))
+val_data = torch.utils.data.Subset(dataset, val_idx)
+test_data = torch.utils.data.Subset(dataset, test_idx)
+
+# Data loaders
+train_loader: DataLoader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+val_loader: DataLoader = DataLoader(val_data, batch_size=batch_size)
+test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
 # Data loaders
 train_loader: DataLoader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 val_loader: DataLoader = DataLoader(val_data, batch_size=batch_size)
@@ -382,7 +398,6 @@ model: nn.Module = TransformerModel(
     num_layers=3,
     num_users=len(user_ids),
     embedding_dim=16,
-    pred_len=pred_len,
     dropout=0.1
 )
 

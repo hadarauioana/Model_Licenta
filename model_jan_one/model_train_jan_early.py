@@ -65,7 +65,7 @@ def train_model_with_early_stopping(
     """
     model.to(device)
     train_losses, val_losses = [], []
-    mse_scores,mae_scores, r2_scores = [], [], []
+    mse_scores, mae_scores, r2_scores = [], [], []
     best_val_loss = float('inf')
     epochs_no_improve = 0
 
@@ -73,23 +73,25 @@ def train_model_with_early_stopping(
     with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'rb') as f:
         min_value, max_value = pickle.load(f)
     print(f"Scaler params loaded: min={min_value}, max={max_value}")
-    results = []
 
     for epoch in range(epochs):
         # Training phase
         model.train()
         total_train_loss = 0.0
-        for x_values, x_time_numeric, x_features, user_id, y in train_loader:
-            x_values, x_time_numeric, x_features, user_id, y = (
+
+        for x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id, y in train_loader:
+            x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id, y = (
                 x_values.to(device),
                 x_time_numeric.to(device),
                 x_features.to(device),
+                x_log1.to(device),
+                x_gradients.to(device),
                 user_id.to(device),
                 y.to(device)
             )
 
             optimizer.zero_grad()
-            predictions = model(x_values, x_time_numeric, x_features, user_id)
+            predictions = model(x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id)
             loss = criterion(predictions, y)
             loss.backward()
             optimizer.step()
@@ -104,69 +106,47 @@ def train_model_with_early_stopping(
         y_true, y_pred, times, user_ids_list = [], [], [], []
 
         with torch.no_grad():
-            for x_values, x_time_numeric, x_features, user_id, y in val_loader:
-                x_values, x_time_numeric, x_features, user_id, y = (
+            for x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id, y in val_loader:
+                x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id, y = (
                     x_values.to(device),
                     x_time_numeric.to(device),
                     x_features.to(device),
+                    x_log1.to(device),
+                    x_gradients.to(device),
                     user_id.to(device),
                     y.to(device)
                 )
-                predictions = model(x_values, x_time_numeric, x_features, user_id)
+                predictions = model(x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id)
                 loss = criterion(predictions, y)
                 total_val_loss += loss.item()
 
                 y_true_denorm = (y.cpu().numpy().flatten() * (max_value - min_value)) + min_value
                 y_pred_denorm = (predictions.cpu().numpy().flatten() * (max_value - min_value)) + min_value
 
-                batch_size, pred_len = predictions.shape
-                times_batch = x_time_numeric[:, -1].cpu().numpy()  # Last timestamp per sequence
-                times_batch = np.repeat(times_batch, pred_len)
+                times_batch = x_time_numeric[:, -1].cpu().numpy()
                 times_batch = pd.to_datetime(times_batch, unit='s', origin='unix').astype(str).tolist()
-
-                user_ids_batch = np.repeat(user_id.cpu().numpy().flatten(), pred_len)
-                user_ids_list.extend(user_ids_batch.tolist())
+                user_ids_batch = user_id.cpu().numpy().flatten().tolist()
 
                 y_true.extend(y_true_denorm.tolist())
                 y_pred.extend(y_pred_denorm.tolist())
                 times.extend(times_batch)
-
-
-                # Debug after each batch
-                # print(f"Lengths after batch - user_ids: {len(user_ids_list)}, times: {len(times)}, y_true: {len(y_true)}, y_pred: {len(y_pred)}")
+                user_ids_list.extend(user_ids_batch)
 
         avg_val_loss = total_val_loss / len(val_loader)
         val_losses.append(avg_val_loss)
 
         # Evaluation metrics
-        mse_norm = mean_squared_error(y_true, y_pred)
-        mae_norm = mean_absolute_error(y_true, y_pred)
-        r2_norm = r2_score(y_true, y_pred)
-
-        mae_denorm = mean_absolute_error(y_true_denorm, y_pred_denorm)
-        mse_denorm = mean_squared_error(y_true_denorm, y_pred_denorm)
-        r2_denorm = r2_score(y_true_denorm, y_pred_denorm)
+        mae_denorm = mean_absolute_error(y_true, y_pred)
+        mse_denorm = mean_squared_error(y_true, y_pred)
+        r2_denorm = r2_score(y_true, y_pred)
 
         mae_scores.append(mae_denorm)
         mse_scores.append(mse_denorm)
         r2_scores.append(r2_denorm)
 
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        column_names = ["Time", "Epoch", "Train Loss", "Validation Loss", "MAE", "MSE", "R²"]
-        # Save results to CSV (append mode)
-
-
-        results_file = "/home/ioana/Desktop/Model_Licenta/output/training_results.csv"
-        if not os.path.exists(results_file):
-            pd.DataFrame(columns=column_names).to_csv(results_file, index=False)
-
-        new_row = pd.DataFrame([[timestamp, epoch + 1, avg_train_loss, avg_val_loss, mae_denorm, mse_denorm, r2_denorm]],
-                               columns=column_names)
-        new_row.to_csv(results_file, mode='a', header=False, index=False)
-
         print(
             f"Epoch {epoch + 1}/{epochs} | Train Loss: {avg_train_loss:.4f} | "
-            f"Val Loss: {avg_val_loss:.4f} | MAE denorm: {mae_denorm:.4f} | MSE denorm: {mse_denorm:.4f} | R² denorm: {r2_denorm:.4f}"
+            f"Val Loss: {avg_val_loss:.4f} | MAE: {mae_denorm:.4f} | MSE: {mse_denorm:.4f} | R²: {r2_denorm:.4f}"
         )
 
         # Early stopping and saving best predictions
@@ -175,23 +155,79 @@ def train_model_with_early_stopping(
             epochs_no_improve = 0
             torch.save(model.state_dict(), "best_model.pth")
             print("Best model saved.")
-
-            # Save predictions for the best model
-            save_predictions_to_csv(y_true, y_pred, times, user_ids_list, filename='best_model_predictions_with_time.csv')
         else:
             epochs_no_improve += 1
             if epochs_no_improve >= patience:
-                print(" Early stopping triggered due to no improvement.")
+                print("Early stopping triggered due to no improvement.")
                 torch.save(model.state_dict(), "best_model.pth")
                 print("Best model saved.")
-                # Save final predictions before stopping
-                save_predictions_to_csv(y_true, y_pred, times, user_ids_list, filename='final_predictions_with_time.csv')
                 break
 
 
+def test_model(
+    model: nn.Module,
+    test_loader: DataLoader,
+    criterion: nn.Module,
+    device: torch.device,
+    user_id_map: dict
+) -> None:
+    """
+    Evaluate the trained model on the test set and save results.
+    """
+    model.to(device)
+    model.eval()
+
+    with open('/home/ioana/Desktop/Model_Licenta/data/scaler_min_max.pkl', 'rb') as f:
+        min_value, max_value = pickle.load(f)
+
+    y_true_test, y_pred_test, times_test, user_ids_list_test = [], [], [], []
+
+    with torch.no_grad():
+        for x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id, y in test_loader:
+            x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id, y = (
+                x_values.to(device),
+                x_time_numeric.to(device),
+                x_features.to(device),
+                x_log1.to(device),
+                x_gradients.to(device),
+                user_id.to(device),
+                y.to(device)
+            )
+
+            predictions = model(x_values, x_time_numeric, x_features, x_log1, x_gradients, user_id)
+
+            y_true_denorm = (y.cpu().numpy().flatten() * (max_value - min_value)) + min_value
+            y_pred_denorm = (predictions.cpu().numpy().flatten() * (max_value - min_value)) + min_value
+
+            times_batch = x_time_numeric[:, -1].cpu().numpy()
+            times_batch = pd.to_datetime(times_batch, unit='s', origin='unix').astype(str).tolist()
+
+            user_ids_batch = user_id.cpu().numpy().flatten().tolist()
+            reverse_user_id_map = {v: k for k, v in user_id_map.items()}
+            user_id_list_expanded = [reverse_user_id_map[uid] for uid in user_ids_batch]
+
+            y_true_test.extend(y_true_denorm.tolist())
+            y_pred_test.extend(y_pred_denorm.tolist())
+            times_test.extend(times_batch)
+            user_ids_list_test.extend(user_id_list_expanded)
+
+    # Compute evaluation metrics
+    mae_test = mean_absolute_error(y_true_test, y_pred_test)
+    mse_test = mean_squared_error(y_true_test, y_pred_test)
+    r2_test = r2_score(y_true_test, y_pred_test)
+
+    print(f"Test Set Metrics: MAE={mae_test:.4f}, MSE={mse_test:.4f}, R²={r2_test:.4f}")
+
+    results_file = "/home/ioana/Desktop/Model_Licenta/output/test_results.csv"
+    new_row = pd.DataFrame([[datetime.now().strftime("%Y-%m-%d %H:%M:%S"), mae_test, mse_test, r2_test]],
+                           columns=["Time", "MAE", "MSE", "R²"])
+    new_row.to_csv(results_file, mode='a', header=not os.path.exists(results_file), index=False)
+
 # Load dataset
-file_path: str = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_fitbit/fitbit_heartrate_merged_minutes.csv"
-data: pd.DataFrame = pd.read_csv(file_path)
+# fitbit_path: str = "/home/ioana/Desktop/Preprocesare_Date_Licenta/process_fitbit/fitbit_heartrate_merged_minutes.csv"
+pmdata_path : str ="/home/ioana/Desktop/Preprocesare_Date_Licenta/process_pmdata/filter_merged_processed_data_pmdata.csv"
+
+data: pd.DataFrame = pd.read_csv(pmdata_path)
 
 data["Time"] = pd.to_datetime(data["Time"])
 
@@ -223,7 +259,7 @@ print(f"Device in use: {device}")
 
 # Split dataset using GroupKFold
 group_kfold = GroupKFold(n_splits=5)
-groups = [user_id for (_, _, _, user_id, _) in dataset.data]
+groups = [user_id for (_, _, _, _,_,user_id, _) in dataset.data]
 train_idx, val_test_idx = next(group_kfold.split(dataset.data, groups=groups))
 val_test_groups = [groups[i] for i in val_test_idx]
 train_data = torch.utils.data.Subset(dataset, train_idx)
@@ -236,6 +272,12 @@ test_data = torch.utils.data.Subset(dataset, test_idx)
 train_loader: DataLoader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
 val_loader: DataLoader = DataLoader(val_data, batch_size=batch_size)
 test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
+# Data loaders
+train_loader: DataLoader = DataLoader(train_data, batch_size=batch_size, shuffle=True)
+val_loader: DataLoader = DataLoader(val_data, batch_size=batch_size)
+test_loader: DataLoader = DataLoader(test_data, batch_size=batch_size)
+
+print("DataLoader succsess")
 
 # Initialize model
 model: nn.Module = TransformerModel(
@@ -254,9 +296,13 @@ criterion: nn.Module = nn.MSELoss()
 optimizer: torch.optim.Optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Train the model with early stopping
-train_model_with_early_stopping(model, train_loader, val_loader, criterion, optimizer, device, epochs=100, patience=10)
-
+# train_model_with_early_stopping(model, train_loader, val_loader, criterion, optimizer, device, epochs=100, patience=10)
+model.load_state_dict(torch.load("best_model.pth", map_location=device))
+# Set model to evaluation mode
+model.eval()
+print("Model loaded successfully.")
+test_model(model, test_loader, nn.MSELoss(), device, user_id_map)
 # Save trained model
-model_path: str = "heart_rate_model_fitbit.pth"
-torch.save(model.state_dict(), model_path)
-print(f"Trained model has been saved to: {model_path}")
+# model_path: str = "heart_rate_model_fitbit.pth"
+# torch.save(model.state_dict(), model_path)
+# print(f"Trained model has been saved to: {model_path}")
